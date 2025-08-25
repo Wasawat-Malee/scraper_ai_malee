@@ -1,0 +1,60 @@
+name: Scrape MALEE with Gemini
+
+on:
+  # รันเองได้จากปุ่ม Run workflow
+  workflow_dispatch:
+  # รันอัตโนมัติช่วงเวลาตลาด (จ.-ศ. 09:00-16:00 ICT ≈ 02:00-09:00 UTC) ทุก 30 นาที
+  schedule:
+    - cron: "*/30 2-9 * * 1-5"
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    # ถ้าต้องการ commit กลับ repo ต้องเปิด permission นี้
+    permissions:
+      contents: write
+
+    env:
+      GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ติดตั้ง Google Chrome บน runner
+      - name: Setup Chrome
+        uses: browser-actions/setup-chrome@v1
+      # action นี้จะตั้ง CHROME_PATH ให้อัตโนมัติ
+      # โค้ดเราอ่าน CHROME_PATH ได้ใน options.binary_location
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run scraper
+        run: python scraper_ai_malee.py
+
+      - name: Upload artifact (price.json)
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: malee-price
+          path: price.json
+
+      # (ทางเลือก) เก็บเป็นไฟล์สะสมในโฟลเดอร์ data/ และ commit กลับ repo
+      - name: Commit JSON to repo (optional)
+        if: ${{ success() && hashFiles('price.json') != '' }}
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          mkdir -p data
+          cp price.json "data/price_$(date -u +'%Y%m%dT%H%M%SZ').json"
+          git add price.json data/
+          git commit -m "Update MALEE price.json [skip ci]" || echo "Nothing to commit"
+          git push
