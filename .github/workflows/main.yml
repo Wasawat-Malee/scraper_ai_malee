@@ -1,16 +1,21 @@
 name: Scrape MALEE with Gemini
 
 on:
-  # รันเองได้จากปุ่ม Run workflow
   workflow_dispatch:
-  # รันอัตโนมัติช่วงเวลาตลาด (จ.-ศ. 09:00-16:00 ICT ≈ 02:00-09:00 UTC) ทุก 30 นาที
+  # จ.-ศ. ช่วง 09:00–16:00 ICT (02:00–09:59 UTC) ทุก 30 นาที
   schedule:
     - cron: "*/30 2-9 * * 1-5"
+
+concurrency:
+  group: scrape-malee
+  cancel-in-progress: true
 
 jobs:
   scrape:
     runs-on: ubuntu-latest
-    # ถ้าต้องการ commit กลับ repo ต้องเปิด permission นี้
+    timeout-minutes: 30
+
+    # ต้องมีสิทธิ์เขียน ถ้าจะ commit กลับ repo
     permissions:
       contents: write
 
@@ -21,11 +26,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ติดตั้ง Google Chrome บน runner
+      # ติดตั้ง Google Chrome
       - name: Setup Chrome
+        id: chrome
         uses: browser-actions/setup-chrome@v1
-      # action นี้จะตั้ง CHROME_PATH ให้อัตโนมัติ
-      # โค้ดเราอ่าน CHROME_PATH ได้ใน options.binary_location
+
+      # ส่ง path ของ Chrome เข้า env ให้ Selenium ใช้
+      - name: Export CHROME_PATH for Selenium
+        run: echo "CHROME_PATH=${{ steps.chrome.outputs.chrome-path }}" >> $GITHUB_ENV
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -33,6 +41,9 @@ jobs:
           python-version: "3.11"
           cache: "pip"
           cache-dependency-path: requirements.txt
+
+      - name: Upgrade pip
+        run: python -m pip install --upgrade pip
 
       - name: Install dependencies
         run: pip install -r requirements.txt
@@ -46,8 +57,9 @@ jobs:
         with:
           name: malee-price
           path: price.json
+          if-no-files-found: ignore
 
-      # (ทางเลือก) เก็บเป็นไฟล์สะสมในโฟลเดอร์ data/ และ commit กลับ repo
+      # (ทางเลือก) เก็บเป็นไฟล์สะสมใน data/ และ commit กลับ repo
       - name: Commit JSON to repo (optional)
         if: ${{ success() && hashFiles('price.json') != '' }}
         run: |
@@ -57,4 +69,5 @@ jobs:
           cp price.json "data/price_$(date -u +'%Y%m%dT%H%M%SZ').json"
           git add price.json data/
           git commit -m "Update MALEE price.json [skip ci]" || echo "Nothing to commit"
-          git push
+          git pull --rebase --autostash || true
+          git push || true
