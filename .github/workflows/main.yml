@@ -74,9 +74,9 @@ jobs:
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          mkdir -p data
-          cp price.json "data/price_$(date -u +'%Y%m%dT%H%M%SZ').json"
-          git add price.json data/
+          mkdir -p data/set
+          cp price.json "data/set/price_$(date -u +'%Y%m%dT%H%M%SZ').json"
+          git add price.json data/set/
           git commit -m "Update MALEE price.json [skip ci]" || echo "Nothing to commit"
           git pull --rebase --autostash || true
           git push || true
