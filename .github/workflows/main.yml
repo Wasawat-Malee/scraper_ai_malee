@@ -81,14 +81,6 @@ jobs:
           git pull --rebase --autostash || true
           git push || true
 
-
-      - name: Run OR scraper
-        run: python scraper_ai_or.py
-      
-      - name: Upload OR artifact
-        if: ${{ always() }}
-        uses: actions/upload-artifact@v4
-        with:
           name: or-diesel-prices
           path: or_diesel_prices.json
           if-no-files-found: ignore
