@@ -97,11 +97,19 @@ EXTRACTION_PROMPT = """
 2) ลบเครื่องหมาย % และวงเล็บ, รองรับ unicode minus
 3) ตอบเป็น JSON ตามสคีมาที่กำหนดเท่านั้น
 """
-
 def extract_fields_with_gemini(page_text: str, screenshot_path: str) -> dict:
+    """
+    ส่ง prompt + ข้อความหน้าเว็บ + สกรีนช็อต เข้า Gemini
+    และบังคับให้ตอบเป็น JSON ตามสคีมา
+    """
+    # โหลดรูปเป็น part
+    with open(screenshot_path, "rb") as f:
+        image_bytes = f.read()
+
+    # แบบ Blob: ใช้คู่ mime_type + data (รองรับใน google-generativeai 0.8.x)
     image_part = {
         "mime_type": "image/png",
-        "data": open(screenshot_path, "rb").read()
+        "data": image_bytes
     }
 
     model = genai.GenerativeModel("gemini-1.5-flash-latest")
@@ -111,10 +119,11 @@ def extract_fields_with_gemini(page_text: str, screenshot_path: str) -> dict:
         "response_schema": RESPONSE_SCHEMA
     }
 
+    # ✅ ส่งข้อความเป็นสตริง หรือ {"text": page_text} ก็ได้
     resp = model.generate_content(
         contents=[
             EXTRACTION_PROMPT,
-            {"mime_type": "text/plain", "text": page_text},
+            page_text,          # ← จุดที่แก้
             image_part
         ],
         generation_config=generation_config,
@@ -123,14 +132,14 @@ def extract_fields_with_gemini(page_text: str, screenshot_path: str) -> dict:
 
     data = json.loads(resp.text)
 
-    # ปรับรูปแบบตัวเลขให้ชัวร์ (กันกรณีส่งมาเป็นสตริง)
+    # กันกรณีโมเดลส่ง string ของตัวเลขมา (ปกติ schema จะคุมไว้แล้ว)
     def to_float(x):
         if isinstance(x, (int, float)):
             return float(x)
         if isinstance(x, str):
             s = x.strip().replace(",", "").replace("%", "").replace("(", "").replace(")", "").replace("−", "-")
             return float(s)
-        raise ValueError(f"ไม่สามารถแปลงเป็น float: {x}")
+        raise ValueError(f"Cannot convert to float: {x}")
 
     data["symbol"] = SYMBOL
     data["price"] = to_float(data["price"])
