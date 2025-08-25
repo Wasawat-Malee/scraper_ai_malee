@@ -80,7 +80,3 @@ jobs:
           git commit -m "Update MALEE price.json [skip ci]" || echo "Nothing to commit"
           git pull --rebase --autostash || true
           git push || true
-
-          name: or-diesel-prices
-          path: or_diesel_prices.json
-          if-no-files-found: ignore
