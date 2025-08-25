@@ -32,25 +32,24 @@ def configure_gemini():
 
 # ---------- 2) เรนเดอร์หน้าเว็บ (text + screenshot) ----------
 def render_set_page(url: str, screenshot_path: str = SCREENSHOT_PATH) -> tuple[str, str]:
-    # ใช้ Selenium Manager ให้หาไดรเวอร์เอง (ไม่ใช้ webdriver-manager)
+    # ใช้ Selenium Manager (อย่าใส่ service=...) ให้หา driver ที่ตรงเอง
     options = webdriver.ChromeOptions()
     options.add_argument("--headless=new")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--window-size=1600,1200")
 
-    # ผูก Chrome binary จาก action setup-chrome
+    # ใช้ Chrome จาก action setup-chrome
     chrome_path = os.getenv("CHROME_PATH")
     if chrome_path:
         options.binary_location = chrome_path
 
-    # ❌ ห้ามระบุ service/executable_path เพื่อให้ Selenium Manager ทำงานอัตโนมัติ
     driver = webdriver.Chrome(options=options)
 
     try:
         driver.get(url)
 
-        # รอให้หน้าโหลดสมบูรณ์
+        # รอ DOM โหลดเสร็จ
         WebDriverWait(driver, 30).until(
             lambda d: d.execute_script("return document.readyState") == "complete"
         )
@@ -66,6 +65,7 @@ def render_set_page(url: str, screenshot_path: str = SCREENSHOT_PATH) -> tuple[s
 
 
 # ---------- 3) เรียก Gemini (Structured Output) ----------
+# ❗️ลบ additionalProperties ออก เพื่อให้เข้ากับ Schema ของไลบรารี
 RESPONSE_SCHEMA = {
     "type": "object",
     "properties": {
@@ -74,8 +74,7 @@ RESPONSE_SCHEMA = {
         "change": {"type": "number"},
         "percent_change": {"type": "number"},
     },
-    "required": ["symbol", "price", "change", "percent_change"],
-    "additionalProperties": False,
+    "required": ["symbol", "price", "change", "percent_change"]
 }
 
 EXTRACTION_PROMPT = """
@@ -117,6 +116,7 @@ def extract_fields_with_gemini(page_text: str, screenshot_path: str) -> dict:
     with open(screenshot_path, "rb") as f:
         image_bytes = f.read()
 
+    # ใช้ inline_data เพื่อความเข้ากันได้สูง
     image_part = {
         "inline_data": {
             "mime_type": "image/png",
@@ -134,7 +134,7 @@ def extract_fields_with_gemini(page_text: str, screenshot_path: str) -> dict:
     resp = model.generate_content(
         contents=[
             EXTRACTION_PROMPT,
-            page_text,   # ส่งข้อความเป็นสตริงธรรมดา
+            page_text,  # ส่งข้อความเป็นสตริง
             image_part
         ],
         generation_config=generation_config,
@@ -149,6 +149,7 @@ def extract_fields_with_gemini(page_text: str, screenshot_path: str) -> dict:
     try:
         data = json.loads(raw)
     except json.JSONDecodeError:
+        # กัน edge-case ที่ยังมี codefence
         raw2 = raw.strip()
         if raw2.startswith("```json"):
             raw2 = raw2[len("```json"):].strip()
@@ -177,8 +178,10 @@ def extract_fields_with_gemini(page_text: str, screenshot_path: str) -> dict:
     data["price"] = to_float(data["price"])
     data["change"] = to_float(data["change"])
     data["percent_change"] = to_float(data["percent_change"])
+
     if data["price"] <= 0:
         raise ValueError(f"ราคาไม่สมเหตุสมผล: {data['price']}")
+
     return data
 
 
