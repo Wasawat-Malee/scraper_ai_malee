@@ -1,13 +1,13 @@
-name: Scrape MALEE with Gemini
+name: Scrape OR with Gemini
 
 on:
   workflow_dispatch:
-  # จ.-ศ. ช่วง 09:00–16:00 ICT (02:00–09:59 UTC) ทุก 30 นาที
+  # จ.-ศ. 09:00–16:00 ICT (02:00–09:59 UTC) ทุก 30 นาที
   schedule:
     - cron: "*/30 2-9 * * 1-5"
 
 concurrency:
-  group: scrape-malee
+  group: scrape-or
   cancel-in-progress: true
 
 jobs:
@@ -32,13 +32,13 @@ jobs:
       - name: Export CHROME_PATH for Selenium
         run: echo "CHROME_PATH=${{ steps.chrome.outputs.chrome-path }}" >> $GITHUB_ENV
 
-      # 🔧 ลบ chromedriver เก่าที่ติดมากับ image เพื่อให้ Selenium Manager เลือกเวอร์ชันที่ถูกต้องเอง
+      # ลบ chromedriver เก่าที่ติดมากับ image เพื่อให้ Selenium Manager จัดการเวอร์ชันเอง
       - name: Remove system chromedriver in PATH
         run: |
           sudo rm -f /usr/bin/chromedriver || true
           sudo apt-get remove -y chromium-chromedriver || true
 
-      # (debug) แสดงเวอร์ชัน Chrome / เช็คว่ามี chromedriver ค้างไหม
+      # (debug) เวอร์ชัน Chrome / chromedriver
       - name: Show Chrome / chromedriver versions
         run: |
           echo "Chrome at: $CHROME_PATH"
@@ -58,9 +58,13 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      # (debug) ดูไฟล์ใน repo เผื่อพาธผิด
+      - name: List files (debug)
+        run: ls -al
+
       - name: Run OR scraper
         run: python scraper_ai_or.py
-      
+
       - name: Upload OR artifact
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
@@ -69,16 +73,16 @@ jobs:
           path: or_diesel_prices.json
           if-no-files-found: ignore
 
-      - name: Commit JSON to repo (optional)
-        if: ${{ success() && hashFiles('price.json') != '' }}
+      # (ทางเลือก) commit ไฟล์ผลลัพธ์กลับ repo
+      - name: Commit OR JSON to repo (optional)
+        if: ${{ success() && hashFiles('or_diesel_prices.json') != '' }}
         run: |
+          FILE="or_diesel_prices.json"
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          mkdir -p data
-          cp price.json "data/price_$(date -u +'%Y%m%dT%H%M%SZ').json"
-          git add price.json data/
-          git commit -m "Update MALEE price.json [skip ci]" || echo "Nothing to commit"
+          mkdir -p data/or
+          cp "$FILE" "data/or/diesel_$(date -u +'%Y%m%dT%H%M%SZ').json"
+          git add "$FILE" data/or/
+          git commit -m "Update OR diesel prices [skip ci]" || echo "Nothing to commit"
           git pull --rebase --autostash || true
           git push || true
-
-
