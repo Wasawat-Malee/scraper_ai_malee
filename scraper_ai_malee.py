@@ -10,12 +10,9 @@ from datetime import datetime
 import google.generativeai as genai
 
 from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from webdriver_manager.chrome import ChromeDriverManager
-
 
 SYMBOL = "MALEE"
 URL = "https://www.set.or.th/th/market/product/stock/quote/MALEE/price"
@@ -35,22 +32,25 @@ def configure_gemini():
 
 # ---------- 2) เรนเดอร์หน้าเว็บ (text + screenshot) ----------
 def render_set_page(url: str, screenshot_path: str = SCREENSHOT_PATH) -> tuple[str, str]:
+    # ใช้ Selenium Manager ให้หาไดรเวอร์เอง (ไม่ใช้ webdriver-manager)
     options = webdriver.ChromeOptions()
     options.add_argument("--headless=new")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--window-size=1600,1200")
 
-    chrome_path = os.getenv("CHROME_PATH")  # รองรับกรณี setup-chrome action
+    # ผูก Chrome binary จาก action setup-chrome
+    chrome_path = os.getenv("CHROME_PATH")
     if chrome_path:
         options.binary_location = chrome_path
 
-    service = Service(ChromeDriverManager().install())
-    driver = webdriver.Chrome(service=service, options=options)
+    # ❌ ห้ามระบุ service/executable_path เพื่อให้ Selenium Manager ทำงานอัตโนมัติ
+    driver = webdriver.Chrome(options=options)
 
     try:
         driver.get(url)
 
+        # รอให้หน้าโหลดสมบูรณ์
         WebDriverWait(driver, 30).until(
             lambda d: d.execute_script("return document.readyState") == "complete"
         )
@@ -97,7 +97,6 @@ def _get_response_text(resp) -> str:
     """ดึงข้อความจาก response แบบกันพลาด"""
     if getattr(resp, "text", None):
         return resp.text
-    # fallback: รวมข้อความจากทุก part
     for cand in getattr(resp, "candidates", []) or []:
         content = getattr(cand, "content", None)
         if not content:
@@ -114,14 +113,10 @@ def _get_response_text(resp) -> str:
 
 
 def extract_fields_with_gemini(page_text: str, screenshot_path: str) -> dict:
-    """
-    ส่ง prompt + ข้อความหน้าเว็บ + สกรีนช็อต เข้า Gemini
-    และบังคับให้ตอบเป็น JSON ตามสคีมา
-    """
+    """ส่ง prompt + ข้อความหน้าเว็บ + สกรีนช็อต เข้า Gemini แล้วตอบ JSON ตามสคีมา"""
     with open(screenshot_path, "rb") as f:
         image_bytes = f.read()
 
-    # ใช้รูปแบบ inline_data เพื่อความเข้ากันได้สูง
     image_part = {
         "inline_data": {
             "mime_type": "image/png",
@@ -136,11 +131,10 @@ def extract_fields_with_gemini(page_text: str, screenshot_path: str) -> dict:
         "response_schema": RESPONSE_SCHEMA
     }
 
-    # ส่งข้อความเป็นสตริงธรรมดา + ภาพเป็น inline_data
     resp = model.generate_content(
         contents=[
             EXTRACTION_PROMPT,
-            page_text,
+            page_text,   # ส่งข้อความเป็นสตริงธรรมดา
             image_part
         ],
         generation_config=generation_config,
@@ -155,7 +149,6 @@ def extract_fields_with_gemini(page_text: str, screenshot_path: str) -> dict:
     try:
         data = json.loads(raw)
     except json.JSONDecodeError:
-        # กันกรณี edge-case ที่ยังมีโค้ดบล็อค
         raw2 = raw.strip()
         if raw2.startswith("```json"):
             raw2 = raw2[len("```json"):].strip()
@@ -165,7 +158,6 @@ def extract_fields_with_gemini(page_text: str, screenshot_path: str) -> dict:
             raw2 = raw2[:-3].strip()
         data = json.loads(raw2)
 
-    # ทำความสะอาดตัวเลขให้ชัวร์
     def to_float(x):
         if isinstance(x, (int, float)):
             return float(x)
@@ -176,7 +168,7 @@ def extract_fields_with_gemini(page_text: str, screenshot_path: str) -> dict:
                  .replace("%", "")
                  .replace("(", "")
                  .replace(")", "")
-                 .replace("−", "-")  # unicode minus → hyphen
+                 .replace("−", "-")
             )
             return float(s)
         raise ValueError(f"Cannot convert to float: {x}")
@@ -185,11 +177,8 @@ def extract_fields_with_gemini(page_text: str, screenshot_path: str) -> dict:
     data["price"] = to_float(data["price"])
     data["change"] = to_float(data["change"])
     data["percent_change"] = to_float(data["percent_change"])
-
-    # ตรวจความสมเหตุสมผลคร่าว ๆ
     if data["price"] <= 0:
         raise ValueError(f"ราคาไม่สมเหตุสมผล: {data['price']}")
-
     return data
 
 
