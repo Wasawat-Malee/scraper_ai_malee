@@ -15,7 +15,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
-    # ต้องมีสิทธิ์เขียน ถ้าจะ commit กลับ repo
     permissions:
       contents: write
 
@@ -26,14 +25,25 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ติดตั้ง Google Chrome
       - name: Setup Chrome
         id: chrome
         uses: browser-actions/setup-chrome@v1
 
-      # ส่ง path ของ Chrome เข้า env ให้ Selenium ใช้
       - name: Export CHROME_PATH for Selenium
         run: echo "CHROME_PATH=${{ steps.chrome.outputs.chrome-path }}" >> $GITHUB_ENV
+
+      # 🔧 ลบ chromedriver เก่าที่ติดมากับ image เพื่อให้ Selenium Manager เลือกเวอร์ชันที่ถูกต้องเอง
+      - name: Remove system chromedriver in PATH
+        run: |
+          sudo rm -f /usr/bin/chromedriver || true
+          sudo apt-get remove -y chromium-chromedriver || true
+
+      # (debug) แสดงเวอร์ชัน Chrome / เช็คว่ามี chromedriver ค้างไหม
+      - name: Show Chrome / chromedriver versions
+        run: |
+          echo "Chrome at: $CHROME_PATH"
+          "$CHROME_PATH" --version || true
+          which chromedriver || echo "chromedriver not present (good)"
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -59,7 +69,6 @@ jobs:
           path: price.json
           if-no-files-found: ignore
 
-      # (ทางเลือก) เก็บเป็นไฟล์สะสมใน data/ และ commit กลับ repo
       - name: Commit JSON to repo (optional)
         if: ${{ success() && hashFiles('price.json') != '' }}
         run: |
